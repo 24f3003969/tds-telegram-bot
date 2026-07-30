@@ -1,9 +1,31 @@
 import json
-import time
 import os
+import re
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from openai import OpenAI
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+
+
+# --- Minimal HTTP Server for Render Health Check ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+
+def run_health_check_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
+
+
+# Start health check server in a background thread to pass Render Web Service checks
+threading.Thread(target=run_health_check_server, daemon=True).start()
+# --------------------------------------------------
 
 # Load configuration from environment variables (do NOT hardcode secrets in source code)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
