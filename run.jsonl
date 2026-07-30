@@ -1,0 +1,2 @@
+{"type": "incoming", "chat_id": 6607878263, "text": "What is 15% of 200? Reply with ONLY this JSON: {\"answer\": , \"log_url\": \"...\"}", "timestamp": 1785395189.0057752}
+{"type": "outgoing", "chat_id": 6607878263, "text": "{\"answer\": 30, \"log_url\": \"PASTE_YOUR_PUBLIC_LOG_URL_HERE\"}", "timestamp": 1785395192.5067582}
