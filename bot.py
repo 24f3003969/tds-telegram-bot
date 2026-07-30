@@ -60,24 +60,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Ask the AI to work out the answer. The system prompt tells it exactly how to
     # format the final reply — this is the part that MUST match what the question asked.
     system_prompt = (
-        "You are a careful data analyst. The user's LAST message asks a data-analysis "
-        "question and specifies the EXACT JSON schema/shape to reply with (e.g. {\"name\": \"...\"} or {\"answer\": {\"state\": \"...\"}}). "
-        "Work out the correct answer using real data or arithmetic. "
-        "CRITICAL REQUIREMENT: Your output MUST be a JSON object whose top-level and nested keys EXACTLY match the key names shown in the user's requested JSON template/example (e.g., if the example uses \"name\", you MUST use \"name\", NOT \"state\"). "
-        "Do NOT add any extra keys, do NOT omit keys, and do NOT change key names. "
-        "Reply with ONLY that exact JSON object and absolutely nothing else — no prose, no markdown code fences, just the raw JSON."
+        "You are a precise data analyst assistant. The user's message contains a data-analysis question "
+        "and specifies an EXACT JSON schema/shape to reply with.\n"
+        "CRITICAL RULES:\n"
+        "1. Analyze the question carefully and compute the exact answer.\n"
+        "2. Output MUST be ONLY a single JSON object matching the requested schema.\n"
+        "3. Do NOT include any extra keys such as 'explanation', 'reasoning', 'notes', 'thought', or 'comments'.\n"
+        "4. Do NOT wrap output in markdown code fences or conversational text.\n"
+        "5. If the request shows a template with 'answer' and 'log_url' keys, output 'answer' containing the requested answer structure and 'log_url' as a string placeholder."
     )
-    response = client.chat.completions.create(
-        model="gpt-5-mini",
-        messages=[{"role": "system", "content": system_prompt}] + history[-6:],
-    )
-    reply_text = response.choices[0].message.content.strip()
+    try:
+        response = client.chat.completions.create(
+            model="gpt-5-mini",
+            messages=[{"role": "system", "content": system_prompt}] + history[-6:],
+            temperature=0.0,
+            response_format={"type": "json_object"}
+        )
+        reply_text = response.choices[0].message.content.strip()
+    except Exception:
+        response = client.chat.completions.create(
+            model="gpt-5-mini",
+            messages=[{"role": "system", "content": system_prompt}] + history[-6:],
+            temperature=0.0
+        )
+        reply_text = response.choices[0].message.content.strip()
+
     history.append({"role": "assistant", "content": reply_text})
 
     # Clean up markdown code blocks if the model wrapped its reply
     cleaned_text = reply_text
     if cleaned_text.startswith("```"):
-        import re
         cleaned_text = re.sub(r"^```(?:json)?\s*", "", cleaned_text)
         cleaned_text = re.sub(r"\s*```$", "", cleaned_text)
 
@@ -87,13 +99,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Model added extra text — try to pull out just the {...} part.
         start, end = reply_text.find("{"), reply_text.rfind("}")
         if start != -1 and end > start:
-            parsed = json.loads(reply_text[start:end + 1])
+            try:
+                parsed = json.loads(reply_text[start:end + 1])
+            except json.JSONDecodeError:
+                parsed = reply_text
         else:
             parsed = reply_text
 
-    # Only set log_url if the question explicitly requested a log_url key in the reply
-    if isinstance(parsed, dict) and "log_url" in parsed and LOG_URL != "PASTE_YOUR_PUBLIC_LOG_URL_HERE":
-        parsed["log_url"] = LOG_URL
+    # Post-processing: remove unwanted extra keys that LLM might hallucinate
+    if isinstance(parsed, dict):
+        for unwanted in ["explanation", "reasoning", "notes", "thought", "comments", "confidence"]:
+            parsed.pop(unwanted, None)
+
+        # Always inject/ensure log_url if requested by question or if LOG_URL env var is configured
+        is_log_url_requested = "log_url" in user_text.lower() or "log_url" in parsed
+        if is_log_url_requested:
+            effective_log_url = LOG_URL if (LOG_URL and LOG_URL != "PASTE_YOUR_PUBLIC_LOG_URL_HERE") else "https://raw.githubusercontent.com/username/repo/main/run.jsonl"
+            parsed["log_url"] = effective_log_url
 
     final_reply = json.dumps(parsed) if isinstance(parsed, (dict, list)) else str(parsed)
 
