@@ -73,15 +73,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = client.chat.completions.create(
             model="gpt-5-mini",
             messages=[{"role": "system", "content": system_prompt}] + history[-6:],
-            temperature=0.0,
             response_format={"type": "json_object"}
         )
         reply_text = response.choices[0].message.content.strip()
     except Exception:
         response = client.chat.completions.create(
             model="gpt-5-mini",
-            messages=[{"role": "system", "content": system_prompt}] + history[-6:],
-            temperature=0.0
+            messages=[{"role": "system", "content": system_prompt}] + history[-6:]
         )
         reply_text = response.choices[0].message.content.strip()
 
