@@ -38,3 +38,7 @@
 {"type": "model_attempt", "chat_id": 123, "model": "gemini-2.5-flash", "error": "Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539670.5559125}
 {"type": "answer_failed", "chat_id": 123, "error": "All models failed. Last error: Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539670.5564826}
 {"type": "parsed_result", "chat_id": 123, "parsed": {}, "empty": true, "timestamp": 1786539670.55666}
+{"type": "parsed_result", "chat_id": 123, "parsed": {"state": "Assam"}, "empty": false, "timestamp": 1786540050.756409}
+{"type": "parsed_result", "chat_id": 123, "parsed": {"values": [197.88, 430.44, 448.8, 93.84, 378.42]}, "empty": false, "timestamp": 1786540050.7579408}
+{"type": "parsed_result", "chat_id": 123, "parsed": {"name": "Delhi"}, "empty": false, "timestamp": 1786540050.7586226}
+{"type": "parsed_result", "chat_id": 123, "parsed": {"state": "Assam"}, "empty": false, "timestamp": 1786540050.7593317}
