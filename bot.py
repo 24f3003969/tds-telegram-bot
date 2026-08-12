@@ -2,9 +2,11 @@ import json
 import logging
 import os
 import re
+import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+import requests
 from openai import OpenAI
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
@@ -165,12 +167,18 @@ def solve_known_question(user_text: str):
 
 
 ANSWER_SYSTEM_PROMPT = (
-    "You are a rigorous data analyst. The user's message contains a data-analysis "
-    "question and, near the end, an example JSON envelope showing the exact shape "
-    "the caller wants, e.g. {\"answer\": {\"state\": \"<state name>\"}, \"log_url\": \"...\"}.\n\n"
-    "Work out the correct value for the 'answer' field ONLY, using real facts, "
-    "calculations, or data embedded directly in the message.\n\n"
-    "Reply with ONLY the JSON value that belongs in 'answer' — nothing else:\n"
+    "You are a rigorous data analyst with two tools: fetch_url (download a public "
+    "dataset/page) and run_python (run pandas/numpy code to compute over data you've "
+    "fetched or that's embedded in the message). USE THEM. Do not answer a factual or "
+    "numeric MOSPI/Census/dataset question from memory alone — fetch the real source "
+    "and compute the answer from it. Only skip the tools if the data needed is fully "
+    "inline in the user's message and the computation is simple enough to do exactly.\n\n"
+    "The user's message contains a data-analysis question and, near the end, an example "
+    "JSON envelope showing the exact shape the caller wants, e.g. "
+    "{\"answer\": {\"state\": \"<state name>\"}, \"log_url\": \"...\"}.\n\n"
+    "Work out the correct value for the 'answer' field ONLY.\n\n"
+    "Once you're done using tools, reply with ONLY the JSON value that belongs in "
+    "'answer' — nothing else:\n"
     "- No markdown code fences.\n"
     "- No surrounding {\"answer\": ...} wrapper — just the value itself.\n"
     "- No 'log_url' field — you don't know it and must never invent or copy one.\n"
@@ -180,32 +188,142 @@ ANSWER_SYSTEM_PROMPT = (
     "string, number, or array, reply with just that value as valid JSON."
 )
 
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_url",
+            "description": (
+                "Fetch a public URL (dataset page, CSV, JSON, HTML, etc.) and return its "
+                "body as text, truncated to ~20000 characters. Use this to get real data "
+                "instead of relying on memory."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"url": {"type": "string", "description": "URL to fetch"}},
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_python",
+            "description": (
+                "Execute Python code in an isolated subprocess to do calculations or "
+                "data wrangling. pandas (pd), numpy (np), json, re, math, statistics, "
+                "io, csv are pre-imported. Use print(...) for anything you need to see "
+                "in the result. No network or file-system access inside this sandbox — "
+                "fetch data with fetch_url first and paste/pass it in as a string. "
+                "20-second timeout."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"code": {"type": "string", "description": "Python source code to run"}},
+                "required": ["code"],
+            },
+        },
+    },
+]
 
-def ask_llm_for_answer(history, chat_id):
+
+def tool_fetch_url(url: str) -> str:
+    try:
+        resp = requests.get(url, timeout=20, headers={"User-Agent": "data-analyst-bot/1.0"})
+        return resp.text[:20000]
+    except Exception as e:
+        return f"ERROR fetching URL: {e}"
+
+
+def tool_run_python(code: str) -> str:
+    """
+    Runs in a separate subprocess (own memory, hard timeout, no inherited
+    file handles) rather than exec() in-process. This is isolation for
+    robustness, NOT a hardened security sandbox — the subprocess still has
+    the same network/filesystem permissions as the bot's host OS user. This
+    bot only ever runs code that an LLM wrote in response to a trusted
+    grading account's messages, but if you reuse this for messages from
+    arbitrary/untrusted users, put it behind a real sandbox (gVisor,
+    firecracker, a locked-down container, etc.) before doing that.
+    """
+    prelude = "import pandas as pd\nimport numpy as np\nimport json, re, math, statistics, io, csv\n"
+    try:
+        result = subprocess.run(
+            ["python3", "-c", prelude + code],
+            capture_output=True, text=True, timeout=20,
+        )
+        output = result.stdout
+        if result.returncode != 0:
+            output += "\nSTDERR:\n" + result.stderr[-3000:]
+        return (output[-8000:] if output else "(no output — did you print() the result?)")
+    except subprocess.TimeoutExpired:
+        return "ERROR: code execution timed out after 20s"
+    except Exception as e:
+        return f"ERROR running code: {e}"
+
+
+def run_tool(name: str, args: dict) -> str:
+    if name == "fetch_url":
+        return tool_fetch_url(args.get("url", ""))
+    if name == "run_python":
+        return tool_run_python(args.get("code", ""))
+    return f"ERROR: unknown tool '{name}'"
+
+
+def ask_llm_for_answer(history, chat_id, max_tool_iters=6):
     for model_name in MODELS_TO_TRY:
         model_name = model_name.strip()
         if not model_name:
             continue
+        messages = [{"role": "system", "content": ANSWER_SYSTEM_PROMPT}] + list(history[-6:])
         try:
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "system", "content": ANSWER_SYSTEM_PROMPT}] + history[-6:],
-            )
-            content = response.choices[0].message.content
-            if content is None:
-                log_event({"type": "model_attempt", "chat_id": chat_id, "model": model_name, "error": "empty content"})
-                continue
-            content = content.strip()
-            parsed = parse_json_value(content)
-            log_event({
-                "type": "model_attempt",
-                "chat_id": chat_id,
-                "model": model_name,
-                "raw_output": content,
-                "parsed_ok": parsed is not None,
-            })
-            if parsed is not None and parsed != {}:
-                return parsed
+            for _ in range(max_tool_iters):
+                response = client.chat.completions.create(
+                    model=model_name, messages=messages, tools=TOOLS,
+                )
+                msg = response.choices[0].message
+
+                if msg.tool_calls:
+                    messages.append({
+                        "role": "assistant",
+                        "content": msg.content,
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                            }
+                            for tc in msg.tool_calls
+                        ],
+                    })
+                    for tc in msg.tool_calls:
+                        try:
+                            args = json.loads(tc.function.arguments or "{}")
+                        except json.JSONDecodeError:
+                            args = {}
+                        result = run_tool(tc.function.name, args)
+                        log_event({
+                            "type": "tool_call", "chat_id": chat_id, "model": model_name,
+                            "tool": tc.function.name, "args": args, "result": result[:2000],
+                        })
+                        messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                    continue  # let the model use the tool result
+
+                content = (msg.content or "").strip()
+                parsed = parse_json_value(content)
+                log_event({
+                    "type": "model_attempt", "chat_id": chat_id, "model": model_name,
+                    "raw_output": content, "parsed_ok": parsed is not None,
+                })
+                if parsed is not None and parsed != {}:
+                    return parsed
+                # Model finished without valid JSON — nudge once, then give up on this model.
+                messages.append({
+                    "role": "user",
+                    "content": "Reply with ONLY the JSON value for 'answer' now — no other text.",
+                })
+            else:
+                logger.warning(f"Model {model_name} hit max tool iterations without a final answer.")
         except Exception as e:
             logger.warning(f"LLM API call failed with model {model_name}: {e}")
             log_event({"type": "model_attempt", "chat_id": chat_id, "model": model_name, "error": str(e)})
