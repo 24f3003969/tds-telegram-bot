@@ -74,19 +74,16 @@ AIPIPE_TOKEN = (
 LOG_URL = os.environ.get("LOG_URL") or os.environ.get("log_url") or ""
 
 if not TELEGRAM_BOT_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set!")
+    logger.warning("TELEGRAM_BOT_TOKEN environment variable is not set!")
 if not AIPIPE_TOKEN:
-    raise ValueError("AIPIPE_TOKEN environment variable is not set!")
+    logger.warning("AIPIPE_TOKEN environment variable is not set!")
 if not LOG_URL:
-    logger.critical(
-        "LOG_URL is not set! Replies will ship an empty log_url and grading will fail. "
-        "Set LOG_URL to the public URL this service serves at /run.jsonl."
-    )
+    logger.warning("LOG_URL environment variable is not set!")
 
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL") or os.environ.get(
     "AIPIPE_BASE_URL", "https://aipipe.org/openai/v1"
 )
-client = OpenAI(base_url=OPENAI_BASE_URL, api_key=AIPIPE_TOKEN)
+client = OpenAI(base_url=OPENAI_BASE_URL, api_key=AIPIPE_TOKEN) if AIPIPE_TOKEN else None
 
 MODELS_TO_TRY = [
     m.strip()
@@ -222,6 +219,8 @@ SYSTEM_PROMPT = (
 # Model call with tool-use loop + model/mode fallback
 # ---------------------------------------------------------------------------
 def call_model(history, chat_id):
+    if not client:
+        raise RuntimeError("OpenAI/AIPipe client is not configured (missing AIPIPE_TOKEN)")
     last_error = None
     for model_name in MODELS_TO_TRY:
         try:

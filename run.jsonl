@@ -1,2 +1,40 @@
 {"type": "incoming", "chat_id": 6607878263, "text": "What is 15% of 200? Reply with ONLY this JSON: {\"answer\": , \"log_url\": \"...\"}", "timestamp": 1785395189.0057752}
 {"type": "outgoing", "chat_id": 6607878263, "text": "{\"answer\": 30, \"log_url\": \"PASTE_YOUR_PUBLIC_LOG_URL_HERE\"}", "timestamp": 1785395192.5067582}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-4o-mini", "error": "'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.335673}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-4o", "error": "'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.336143}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-3.5-turbo", "error": "'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.3364167}
+{"type": "model_attempt", "chat_id": 123, "model": "gemini-2.5-flash", "error": "'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.337065}
+{"type": "answer_failed", "chat_id": 123, "error": "All models failed. Last error: 'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.3382106}
+{"type": "parsed_result", "chat_id": 123, "parsed": {}, "empty": true, "timestamp": 1786539656.3383715}
+{"type": "parsed_result", "chat_id": 123, "parsed": {"values": [197.88, 430.44, 448.8, 93.84, 378.42]}, "empty": false, "timestamp": 1786539656.3397026}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-4o-mini", "error": "'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.3403926}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-4o", "error": "'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.3405914}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-3.5-turbo", "error": "'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.3407907}
+{"type": "model_attempt", "chat_id": 123, "model": "gemini-2.5-flash", "error": "'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.34103}
+{"type": "answer_failed", "chat_id": 123, "error": "All models failed. Last error: 'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.3417292}
+{"type": "parsed_result", "chat_id": 123, "parsed": {}, "empty": true, "timestamp": 1786539656.341878}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-4o-mini", "error": "'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.3427303}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-4o", "error": "'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.343025}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-3.5-turbo", "error": "'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.3432977}
+{"type": "model_attempt", "chat_id": 123, "model": "gemini-2.5-flash", "error": "'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.3435407}
+{"type": "answer_failed", "chat_id": 123, "error": "All models failed. Last error: 'NoneType' object has no attribute 'chat'", "timestamp": 1786539656.3441374}
+{"type": "parsed_result", "chat_id": 123, "parsed": {}, "empty": true, "timestamp": 1786539656.3443115}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-4o-mini", "error": "Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539669.3505208}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-4o", "error": "Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539669.4687643}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-3.5-turbo", "error": "Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539669.5757473}
+{"type": "model_attempt", "chat_id": 123, "model": "gemini-2.5-flash", "error": "Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539669.6793852}
+{"type": "answer_failed", "chat_id": 123, "error": "All models failed. Last error: Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539669.6803}
+{"type": "parsed_result", "chat_id": 123, "parsed": {}, "empty": true, "timestamp": 1786539669.680412}
+{"type": "parsed_result", "chat_id": 123, "parsed": {"values": [197.88, 430.44, 448.8, 93.84, 378.42]}, "empty": false, "timestamp": 1786539669.6809626}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-4o-mini", "error": "Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539669.785458}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-4o", "error": "Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539669.8887877}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-3.5-turbo", "error": "Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539669.9961493}
+{"type": "model_attempt", "chat_id": 123, "model": "gemini-2.5-flash", "error": "Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539670.1086004}
+{"type": "answer_failed", "chat_id": 123, "error": "All models failed. Last error: Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539670.1090772}
+{"type": "parsed_result", "chat_id": 123, "parsed": {}, "empty": true, "timestamp": 1786539670.1091943}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-4o-mini", "error": "Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539670.2274706}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-4o", "error": "Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539670.3347886}
+{"type": "model_attempt", "chat_id": 123, "model": "gpt-3.5-turbo", "error": "Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539670.4513457}
+{"type": "model_attempt", "chat_id": 123, "model": "gemini-2.5-flash", "error": "Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539670.5559125}
+{"type": "answer_failed", "chat_id": 123, "error": "All models failed. Last error: Error code: 401 - {'message': 'Bearer token is invalid: JWSInvalid: Invalid Compact JWS'}", "timestamp": 1786539670.5564826}
+{"type": "parsed_result", "chat_id": 123, "parsed": {}, "empty": true, "timestamp": 1786539670.55666}
