@@ -196,22 +196,16 @@ TOOLS_SPEC = [
 TOOL_IMPLS = {"fetch_url": tool_fetch_url, "run_python": tool_run_python}
 
 SYSTEM_PROMPT = (
-    "You are an expert data analyst AI assistant. The user's message contains a data-analysis "
-    "question and specifies an EXACT JSON schema/shape to reply with.\n"
+    "You are an expert AI assistant. Answer ANY question asked in the user's message accurately "
+    "and completely (whether data analysis, factual lookup, math, logic, text transformation, "
+    "reasoning, multi-turn conversation, coding, or general knowledge).\n\n"
     "CRITICAL INSTRUCTIONS:\n"
-    "1. If the question references a dataset or public source (e.g. MOSPI, data.gov.in, Census), "
-    "use the fetch_url tool to actually download it, and run_python to parse/compute over it. "
-    "Do NOT answer from memory/guesswork when a real source is available or implied.\n"
-    "2. Analyze the question carefully; if it's multi-turn, the LAST message is the one to answer, "
-    "using earlier turns as context.\n"
-    "3. When you are ready, output ONLY a single JSON object matching the requested schema, and "
-    "nothing else — no markdown fences, no prose before or after.\n"
-    "4. Every value in the schema MUST be a real, computed answer — never leave a value as {}, "
-    "null, an empty string, an empty list, or a literal placeholder like <num> or <state name>. "
-    "If asked for a number, compute it. If asked for a category/name, name it.\n"
-    "5. Do NOT include extra keys such as 'explanation', 'reasoning', 'notes', 'thought', or "
-    "'comments' in the final JSON.\n"
-    "6. If the request specifies 'answer' and 'log_url' keys, output both, both populated."
+    "1. Analyze the message carefully. For multi-turn exchanges, use earlier turns as context and answer the last turn.\n"
+    "2. If the question references a public dataset or URL, use fetch_url to download it and run_python to process it.\n"
+    "3. Answer the question accurately with real computed values. Never output empty braces {}, null, or placeholders.\n"
+    "4. Output MUST be ONLY a single JSON object matching the requested schema, without markdown code fences or surrounding text.\n"
+    "5. Do NOT include extra metadata keys such as 'explanation', 'reasoning', 'notes', or 'comments'.\n"
+    "6. If the prompt specifies 'answer' and 'log_url' keys, populate both."
 )
 
 
@@ -335,34 +329,52 @@ def call_model(history, chat_id):
 
 
 # ---------------------------------------------------------------------------
-# Local fast-path & domain dataset fallback
+# Dynamic local solver for numerical calculations (mean, median, sum, max, min, scaling)
 # ---------------------------------------------------------------------------
 def try_python_solver(user_text: str):
     text_lower = user_text.lower()
 
-    if "maternal mortality" in text_lower or ("mospi" in text_lower and "mmr" in text_lower):
-        return {"state": "Assam"}
-
-    if "population density" in text_lower and ("census 2011" in text_lower or "india" in text_lower):
-        return {"name": "Delhi"}
-
-    match_mult = re.search(r"multiply\s+(?:each\s+input\s+)?by\s+([0-9.]+)", text_lower)
-    match_array = re.search(r"\[([0-9\s,.\-]+)\]", user_text)
-    if match_mult and match_array:
+    # Search for a list of numbers in brackets, e.g., [12, 45, 7, 89, 23, 56]
+    match_array = re.search(r"\[([0-9\s,\.\-]+)\]", user_text)
+    if match_array:
         try:
-            factor = float(match_mult.group(1))
             nums = [
                 float(x.strip()) if "." in x else int(x.strip())
                 for x in match_array.group(1).split(",")
+                if x.strip()
             ]
-            decimals = 2
-            match_round = re.search(r"round\s+to\s+([0-9]+)\s+decimal", text_lower)
-            if match_round:
-                decimals = int(match_round.group(1))
-            values = [round(x * factor, decimals) for x in nums]
-            return {"values": values}
+            if nums:
+                decimals = 2
+                match_round = re.search(r"round\w*\s+(?:to\s+)?([0-9]+)\s+decimal", text_lower)
+                if match_round:
+                    decimals = int(match_round.group(1))
+
+                if "mean" in text_lower or "average" in text_lower:
+                    val = round(float(statistics.mean(nums)), decimals)
+                    return int(val) if val.is_integer() else val
+
+                if "median" in text_lower:
+                    val = round(float(statistics.median(nums)), decimals)
+                    return int(val) if val.is_integer() else val
+
+                if "sum" in text_lower or "total" in text_lower:
+                    val = round(float(sum(nums)), decimals)
+                    return int(val) if val.is_integer() else val
+
+                if "max" in text_lower or "maximum" in text_lower:
+                    return max(nums)
+
+                if "min" in text_lower or "minimum" in text_lower:
+                    return min(nums)
+
+                match_mult = re.search(r"multiply\s+(?:each\s+input\s+)?by\s+([0-9.]+)", text_lower)
+                if match_mult:
+                    factor = float(match_mult.group(1))
+                    values = [round(x * factor, decimals) for x in nums]
+                    return {"values": values}
         except Exception:
             pass
+
     return None
 
 
@@ -373,16 +385,16 @@ def fallback_direct_llm(user_text: str):
     if not client:
         return None
     prompt = (
-        f"Answer this data analysis question: {user_text}\n"
-        "Return ONLY a single valid JSON object containing the computed answer. "
-        "Do NOT return empty braces {}, null, or placeholders. Return the actual computed answer."
+        f"Answer this question accurately: {user_text}\n"
+        "Return ONLY a single valid JSON object containing the answer matching the requested shape. "
+        "Do NOT return empty braces {}, null, or placeholders. Output the actual answer."
     )
     for model_name in MODELS_TO_TRY:
         try:
             response = client.chat.completions.create(
                 model=model_name,
                 messages=[
-                    {"role": "system", "content": "You are an expert data analyst AI. Reply ONLY with a single valid JSON object."},
+                    {"role": "system", "content": "You are an expert AI assistant. Reply ONLY with a single valid JSON object."},
                     {"role": "user", "content": prompt}
                 ]
             )
@@ -408,7 +420,7 @@ def parse_llm_response(reply_text: str):
         scope = {"math": math, "statistics": statistics, "json": json, "re": re}
         try:
             exec(py_match.group(1), scope)
-            if "result" in scope and isinstance(scope["result"], (dict, list)):
+            if "result" in scope and scope["result"] is not None:
                 return scope["result"]
         except Exception:
             pass
@@ -437,6 +449,9 @@ def parse_llm_response(reply_text: str):
         except json.JSONDecodeError:
             pass
 
+    if cleaned:
+        return cleaned
+
     return None
 
 
@@ -459,16 +474,8 @@ def is_answer_empty(parsed):
 # Assemble final {"answer": ..., "log_url": ...} shape
 # ---------------------------------------------------------------------------
 def format_final_reply(parsed, user_text: str, log_url: str):
-    if parsed is None or is_answer_empty(parsed):
-        # Fallback defaults if answer is still empty
-        if "state" in user_text.lower():
-            parsed = {"state": "Assam"}
-        elif "name" in user_text.lower() or "density" in user_text.lower():
-            parsed = {"name": "Delhi"}
-        elif "values" in user_text.lower():
-            parsed = {"values": []}
-        else:
-            parsed = {"result": "ok"}
+    if parsed is None:
+        parsed = {}
 
     is_log_url_requested = "log_url" in user_text.lower() or (
         isinstance(parsed, dict) and "log_url" in parsed
