@@ -15,6 +15,17 @@ logger = logging.getLogger(__name__)
 
 LOG_FILE = "run.jsonl"
 
+
+def get_effective_log_url():
+    log_url_env = os.environ.get("LOG_URL")
+    if log_url_env and log_url_env != "PASTE_YOUR_PUBLIC_LOG_URL_HERE":
+        return log_url_env
+    render_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if render_url:
+        return render_url.rstrip("/") + "/run.jsonl"
+    return "https://raw.githubusercontent.com/username/repo/main/run.jsonl"
+
+
 # --- HTTP Server for Render Health Check & Public Logs ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -52,10 +63,9 @@ def run_health_check_server():
 threading.Thread(target=run_health_check_server, daemon=True).start()
 # --------------------------------------------------
 
-# Load configuration from environment variables (do NOT hardcode secrets)
+# Load configuration from environment variables
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 AIPIPE_TOKEN = os.environ.get("AIPIPE_TOKEN") or os.environ.get("OPENAI_API_KEY")
-LOG_URL = os.environ.get("LOG_URL", "PASTE_YOUR_PUBLIC_LOG_URL_HERE")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL") or os.environ.get("AIPIPE_BASE_URL", "https://aipipe.org/openai/v1")
 
 if not TELEGRAM_BOT_TOKEN:
@@ -96,13 +106,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     system_prompt = (
         "You are a precise data analyst assistant. The user's message contains a data-analysis question "
-        "and specifies an EXACT JSON schema/shape to reply with.\n"
+        "and specifies an EXACT JSON schema/shape to reply with.\n\n"
         "CRITICAL RULES:\n"
         "1. Analyze the question carefully and compute the exact answer.\n"
         "2. Output MUST be ONLY a single JSON object matching the requested schema.\n"
-        "3. Do NOT include any extra keys such as 'explanation', 'reasoning', 'notes', 'thought', or 'comments'.\n"
-        "4. Do NOT wrap output in markdown code fences or conversational text.\n"
-        "5. If the request shows a template with 'answer' and 'log_url' keys, output 'answer' containing the requested answer structure and 'log_url' as a string placeholder."
+        "3. If the request template has 'answer' and 'log_url' keys like {\"answer\": ..., \"log_url\": \"...\"}, "
+        "output 'answer' containing the requested answer object and 'log_url' as a string placeholder.\n"
+        "4. Do NOT include any extra keys such as 'explanation', 'reasoning', 'notes', 'thought', or 'comments'.\n"
+        "5. Do NOT wrap output in markdown code fences or conversational text."
     )
 
     reply_text = ""
@@ -152,18 +163,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             parsed = reply_text
 
-    # Post-processing: remove unwanted extra keys that LLM might hallucinate
+    effective_log_url = get_effective_log_url()
+    is_log_url_requested = "log_url" in user_text.lower()
+    is_answer_wrapper_requested = '"answer"' in user_text.lower() or "'answer'" in user_text.lower()
+
     if isinstance(parsed, dict):
         for unwanted in ["explanation", "reasoning", "notes", "thought", "comments", "confidence"]:
             parsed.pop(unwanted, None)
 
-        # Handle log_url strictly: inject log_url ONLY IF requested in user_text
-        is_log_url_requested = "log_url" in user_text.lower()
-        if is_log_url_requested:
-            effective_log_url = LOG_URL if (LOG_URL and LOG_URL != "PASTE_YOUR_PUBLIC_LOG_URL_HERE") else "https://raw.githubusercontent.com/username/repo/main/run.jsonl"
+        if is_log_url_requested and is_answer_wrapper_requested:
+            if "answer" not in parsed:
+                # LLM outputted answer directly without nesting inside {"answer": ...}
+                answer_content = {k: v for k, v in parsed.items() if k != "log_url"}
+                parsed = {
+                    "answer": answer_content,
+                    "log_url": effective_log_url
+                }
+            else:
+                parsed["log_url"] = effective_log_url
+        elif is_log_url_requested:
             parsed["log_url"] = effective_log_url
         else:
             parsed.pop("log_url", None)
+    elif is_log_url_requested and is_answer_wrapper_requested:
+        parsed = {
+            "answer": parsed,
+            "log_url": effective_log_url
+        }
 
     final_reply = json.dumps(parsed) if isinstance(parsed, (dict, list)) else str(parsed)
 
