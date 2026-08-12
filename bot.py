@@ -85,6 +85,37 @@ def log_event(event: dict):
         f.write(json.dumps(event) + "\n")
 
 
+def parse_json_reply(text: str):
+    if not text:
+        return None
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        start, end = text.find("{"), text.rfind("}")
+        if start != -1 and end > start:
+            try:
+                return json.loads(text[start:end + 1])
+            except json.JSONDecodeError:
+                pass
+    return None
+
+
+def is_valid_parsed(parsed, is_answer_wrapper_requested):
+    if not isinstance(parsed, dict):
+        return False
+    if is_answer_wrapper_requested:
+        ans = parsed.get("answer")
+        if ans is None or ans == {} or ans == "":
+            return False
+    elif not parsed:
+        return False
+    return True
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = "Hello! I am a data analysis Telegram bot. Send me your query or JSON request."
     await update.message.reply_text(welcome_text)
@@ -99,82 +130,102 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     history = conversation_history.setdefault(chat_id, [])
     history.append({"role": "user", "content": user_text})
-    # Keep history bounded to avoid excessive memory / token growth
     if len(history) > 10:
         history = history[-10:]
         conversation_history[chat_id] = history
 
     system_prompt = (
-        "You are a precise data analyst assistant. The user's message contains a data-analysis question "
-        "and specifies an EXACT JSON schema/shape to reply with.\n\n"
-        "CRITICAL RULES:\n"
-        "1. Analyze the question carefully and compute the exact answer.\n"
-        "2. Output MUST be ONLY a single JSON object matching the requested schema.\n"
-        "3. If the request template has 'answer' and 'log_url' keys like {\"answer\": ..., \"log_url\": \"...\"}, "
-        "output 'answer' containing the requested answer object and 'log_url' as a string placeholder.\n"
-        "4. Do NOT include any extra keys such as 'explanation', 'reasoning', 'notes', 'thought', or 'comments'.\n"
-        "5. Do NOT wrap output in markdown code fences or conversational text."
+        "You are an expert data analyst AI assistant specializing in Indian public dataset queries (MOSPI, Census 2011, etc.) "
+        "and numerical data forecasts.\n\n"
+        "CRITICAL INSTRUCTIONS:\n"
+        "1. Compute or retrieve the exact factual/mathematical answer for the user's question.\n"
+        "2. Replace ALL schema placeholders (such as '<state name>', '<name>', '<number>', '<value>') with exact factual answers (e.g. 'Assam', 'Delhi', 123.45).\n"
+        "3. Output MUST be ONLY a single valid JSON object matching the requested schema.\n"
+        "4. If the request template has 'answer' and 'log_url' keys like {\"answer\": ..., \"log_url\": \"...\"}, "
+        "output 'answer' containing the computed answer object and 'log_url' as a string placeholder.\n"
+        "   Example: {\"answer\": {\"state\": \"Assam\"}, \"log_url\": \"https://example.com/run.jsonl\"}\n"
+        "5. NEVER return empty objects like {\"answer\": {}} or empty values. Populate every field with real data.\n"
+        "6. Do NOT include any extra keys ('explanation', 'reasoning', 'thought') or markdown formatting."
     )
 
-    reply_text = ""
+    is_log_url_requested = "log_url" in user_text.lower()
+    is_answer_wrapper_requested = '"answer"' in user_text.lower() or "'answer'" in user_text.lower()
+
     models_to_try = ["gpt-5-mini", "gpt-4o-mini", "gpt-4.1-mini", "gpt-3.5-turbo"]
-    
+    parsed = None
+    reply_text = ""
+
     for model_name in models_to_try:
+        # Attempt 1: with response_format json_object
         try:
             response = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "system", "content": system_prompt}] + history[-6:],
                 response_format={"type": "json_object"}
             )
-            reply_text = response.choices[0].message.content.strip()
-            break
-        except Exception:
+            candidate_text = response.choices[0].message.content.strip()
+            candidate_parsed = parse_json_reply(candidate_text)
+            if is_valid_parsed(candidate_parsed, is_answer_wrapper_requested):
+                reply_text = candidate_text
+                parsed = candidate_parsed
+                break
+        except Exception as e:
+            logger.warning(f"Failed JSON object API call with model {model_name}: {e}")
+
+        # Attempt 2: standard completion
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "system", "content": system_prompt}] + history[-6:]
+            )
+            candidate_text = response.choices[0].message.content.strip()
+            candidate_parsed = parse_json_reply(candidate_text)
+            if is_valid_parsed(candidate_parsed, is_answer_wrapper_requested):
+                reply_text = candidate_text
+                parsed = candidate_parsed
+                break
+        except Exception as e:
+            logger.warning(f"Failed standard API call with model {model_name}: {e}")
+
+    # Fallback retry if model returned empty answer structure
+    if not is_valid_parsed(parsed, is_answer_wrapper_requested):
+        logger.warning("Model returned empty or invalid answer structure. Running fallback extraction...")
+        fallback_prompt = (
+            f"Question: {user_text}\n\n"
+            "Answer the question accurately. Replace placeholders like '<state name>' or '<name>' with real data. "
+            "Reply with ONLY a valid JSON object."
+        )
+        for model_name in models_to_try:
             try:
                 response = client.chat.completions.create(
                     model=model_name,
-                    messages=[{"role": "system", "content": system_prompt}] + history[-6:]
+                    messages=[{"role": "user", "content": fallback_prompt}]
                 )
-                reply_text = response.choices[0].message.content.strip()
-                break
-            except Exception as e:
-                logger.warning(f"Failed API call with model {model_name}: {e}")
+                candidate_text = response.choices[0].message.content.strip()
+                candidate_parsed = parse_json_reply(candidate_text)
+                if candidate_parsed and candidate_parsed != {}:
+                    parsed = candidate_parsed
+                    reply_text = candidate_text
+                    break
+            except Exception:
                 continue
 
-    if not reply_text:
-        reply_text = "{}"
+    if parsed is None:
+        parsed = {}
 
-    history.append({"role": "assistant", "content": reply_text})
-
-    # Clean up markdown code blocks if present
-    cleaned_text = reply_text
-    if cleaned_text.startswith("```"):
-        cleaned_text = re.sub(r"^```(?:json)?\s*", "", cleaned_text)
-        cleaned_text = re.sub(r"\s*```$", "", cleaned_text)
-
-    try:
-        parsed = json.loads(cleaned_text)
-    except json.JSONDecodeError:
-        start, end = reply_text.find("{"), reply_text.rfind("}")
-        if start != -1 and end > start:
-            try:
-                parsed = json.loads(reply_text[start:end + 1])
-            except json.JSONDecodeError:
-                parsed = reply_text
-        else:
-            parsed = reply_text
+    history.append({"role": "assistant", "content": reply_text or json.dumps(parsed)})
 
     effective_log_url = get_effective_log_url()
-    is_log_url_requested = "log_url" in user_text.lower()
-    is_answer_wrapper_requested = '"answer"' in user_text.lower() or "'answer'" in user_text.lower()
 
     if isinstance(parsed, dict):
         for unwanted in ["explanation", "reasoning", "notes", "thought", "comments", "confidence"]:
             parsed.pop(unwanted, None)
 
         if is_log_url_requested and is_answer_wrapper_requested:
-            if "answer" not in parsed:
-                # LLM outputted answer directly without nesting inside {"answer": ...}
-                answer_content = {k: v for k, v in parsed.items() if k != "log_url"}
+            ans = parsed.get("answer")
+            if ans is None or ans == {}:
+                # LLM outputted answer keys directly at root level
+                answer_content = {k: v for k, v in parsed.items() if k not in ("log_url", "answer")}
                 parsed = {
                     "answer": answer_content,
                     "log_url": effective_log_url
